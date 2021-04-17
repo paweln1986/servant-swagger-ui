@@ -1,13 +1,14 @@
-{-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 -----------------------------------------------------------------------------
 --
 -- Provides 'SwaggerUI' and corresponding 'swaggerUIServer' to embed
@@ -34,27 +35,43 @@
 --     catEndpoint name = pure $ Cat name False
 -- @
 
-module Servant.Swagger.UI.Core (
-    -- * Swagger UI API
+module Servant.Swagger.UI.Core
+  ( -- * Swagger UI API
     SwaggerSchemaUI,
     SwaggerSchemaUI',
 
     -- * Implementation details
-    SwaggerUiHtml(..),
+    SwaggerUiHtml (..),
     swaggerSchemaUIServerImpl,
     swaggerSchemaUIServerImpl',
     Handler,
-    ) where
+  )
+where
 
-import Data.ByteString                (ByteString)
-import Data.Swagger                   (Swagger)
-import GHC.TypeLits                   (KnownSymbol, Symbol, symbolVal)
+import Data.ByteString (ByteString)
+import Data.OpenApi (OpenApi)
+import qualified Data.Text as T
+import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Network.Wai.Application.Static (embeddedSettings, staticApp)
 import Servant
-import Servant.HTML.Blaze             (HTML)
-import Text.Blaze                     (ToMarkup (..))
-
-import qualified Data.Text as T
+  ( Get,
+    Handler,
+    HasLink (MkLink),
+    HasServer (ServerT),
+    IsElem,
+    JSON,
+    Link,
+    Proxy (..),
+    Raw,
+    Tagged (Tagged),
+    URI (uriPath),
+    linkURI,
+    safeLink,
+    type (:<|>) (..),
+    type (:>),
+  )
+import Servant.HTML.Blaze (HTML)
+import Text.Blaze (ToMarkup (..))
 
 -- | Swagger schema + ui api.
 --
@@ -66,19 +83,18 @@ import qualified Data.Text as T
 -- \/swagger-ui\/index.html
 -- \/swagger-ui\/...
 -- @
---
 type SwaggerSchemaUI (dir :: Symbol) (schema :: Symbol) =
-    SwaggerSchemaUI' dir (schema :> Get '[JSON] Swagger)
+  SwaggerSchemaUI' dir (schema :> Get '[JSON] OpenApi)
 
 -- | Use 'SwaggerSchemaUI'' when you need even more control over
 -- where @swagger.json@ is served (e.g. subdirectory).
 type SwaggerSchemaUI' (dir :: Symbol) (api :: *) =
-    api
-    :<|> dir :>
-        ( Get '[HTML] (SwaggerUiHtml dir api)
-        :<|> "index.html" :> Get '[HTML] (SwaggerUiHtml dir api)
-        :<|> Raw
-        )
+  api
+    :<|> dir
+      :> ( Get '[HTML] (SwaggerUiHtml dir api)
+             :<|> "index.html" :> Get '[HTML] (SwaggerUiHtml dir api)
+             :<|> Raw
+         )
 
 -- | Index file for swagger ui.
 --
@@ -88,34 +104,38 @@ type SwaggerSchemaUI' (dir :: Symbol) (api :: *) =
 -- to find schema file automatically.
 data SwaggerUiHtml (dir :: Symbol) (api :: *) = SwaggerUiHtml T.Text
 
-instance (KnownSymbol dir, HasLink api, Link ~ MkLink api Link, IsElem api api)
-    => ToMarkup (SwaggerUiHtml dir api)
+instance
+  (KnownSymbol dir, HasLink api, Link ~ MkLink api Link, IsElem api api) =>
+  ToMarkup (SwaggerUiHtml dir api)
   where
-    toMarkup (SwaggerUiHtml template) = preEscapedToMarkup
-        $ T.replace "SERVANT_SWAGGER_UI_SCHEMA" schema
-        $ T.replace "SERVANT_SWAGGER_UI_DIR" dir
-        $ template
-      where
-        schema = T.pack $ uriPath . linkURI $ safeLink proxyApi proxyApi
-        dir    = T.pack $ symbolVal (Proxy :: Proxy dir)
-        proxyApi = Proxy :: Proxy api
+  toMarkup (SwaggerUiHtml template) =
+    preEscapedToMarkup $
+      T.replace "SERVANT_SWAGGER_UI_SCHEMA" schema $
+        T.replace "SERVANT_SWAGGER_UI_DIR" dir $
+          template
+    where
+      schema = T.pack $ uriPath . linkURI $ safeLink proxyApi proxyApi
+      dir = T.pack $ symbolVal (Proxy :: Proxy dir)
+      proxyApi = Proxy :: Proxy api
 
-swaggerSchemaUIServerImpl
-    :: (Monad m, ServerT api m ~ m Swagger)
-    => T.Text -> [(FilePath, ByteString)]
-    -> Swagger -> ServerT (SwaggerSchemaUI' dir api) m
-swaggerSchemaUIServerImpl indexTemplate files swagger
-  = swaggerSchemaUIServerImpl' indexTemplate files $ return swagger
+swaggerSchemaUIServerImpl ::
+  (Monad m, ServerT api m ~ m OpenApi) =>
+  T.Text ->
+  [(FilePath, ByteString)] ->
+  OpenApi ->
+  ServerT (SwaggerSchemaUI' dir api) m
+swaggerSchemaUIServerImpl indexTemplate files swagger =
+  swaggerSchemaUIServerImpl' indexTemplate files $ return swagger
 
 -- | Use a custom server to serve the Swagger spec source.
-swaggerSchemaUIServerImpl'
-    :: Monad m
-    => T.Text
-    -> [(FilePath, ByteString)]
-    -> ServerT api m
-    -> ServerT (SwaggerSchemaUI' dir api) m
-swaggerSchemaUIServerImpl' indexTemplate files server
-       = server
+swaggerSchemaUIServerImpl' ::
+  Monad m =>
+  T.Text ->
+  [(FilePath, ByteString)] ->
+  ServerT api m ->
+  ServerT (SwaggerSchemaUI' dir api) m
+swaggerSchemaUIServerImpl' indexTemplate files server =
+  server
     :<|> return (SwaggerUiHtml indexTemplate)
     :<|> return (SwaggerUiHtml indexTemplate)
     :<|> rest

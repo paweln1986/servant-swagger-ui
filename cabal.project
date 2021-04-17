@@ -2,5 +2,3 @@ packages:
   servant-swagger-ui/
   servant-swagger-ui-core/
   servant-swagger-ui-example/
-  servant-swagger-ui-jensoleg/
-  servant-swagger-ui-redoc/

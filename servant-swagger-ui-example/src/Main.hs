@@ -25,13 +25,10 @@ import Network.Wai        (Application)
 import System.Environment (getArgs, lookupEnv)
 import Text.Read          (readMaybe)
 
-import Data.Swagger
 import Servant
-import Servant.Swagger
+import Servant.OpenApi
 import Servant.Swagger.UI
 import Servant.Swagger.UI.Core
-import Servant.Swagger.UI.JensOleG
-import Servant.Swagger.UI.ReDoc
 
 import qualified Network.Wai.Handler.Warp as Warp
 
@@ -45,6 +42,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 #if __GLASGOW_HASKELL__ >= 802 && MIN_VERSION_base(4,10,0)
 import GHC.Generics (D1, Meta (..), Rep)
 import GHC.TypeLits (AppendSymbol, Symbol)
+import Data.OpenApi hiding (Server)
 #endif
 #endif
 
@@ -142,7 +140,7 @@ type API =
 -- To test nested case
 type API' = API
     :<|> "nested" :> API
-    :<|> SwaggerSchemaUI' "foo-ui" ("foo" :> "swagger.json" :> Get '[JSON] Swagger)
+    :<|> SwaggerSchemaUI' "foo-ui" ("foo" :> "swagger.json" :> Get '[JSON] OpenApi)
 
 -- Implementation
 
@@ -155,8 +153,6 @@ data Variant
 
 data UIFlavour
     = Original
-    | JensOleG
-    | ReDoc
     deriving (Eq)
 
 server' :: UIFlavour -> Server API'
@@ -174,12 +170,10 @@ server' uiFlavour = server Normal
         -- Unfortunately we have to specify the basePath manually atm.
 
     schemaUiServer
-        :: (Server api ~ Handler Swagger)
-        => Swagger -> Server (SwaggerSchemaUI' dir api)
+        :: (Server api ~ Handler OpenApi)
+        => OpenApi -> Server (SwaggerSchemaUI' dir api)
     schemaUiServer = case uiFlavour of
         Original -> swaggerSchemaUIServer
-        JensOleG -> jensolegSwaggerSchemaUIServer
-        ReDoc    -> redocSchemaUIServer
 
     swaggerDoc' Normal    = swaggerDoc
     swaggerDoc' Nested    = swaggerDoc
@@ -190,8 +184,8 @@ server' uiFlavour = server Normal
 
 -- Boilerplate
 
-swaggerDoc :: Swagger
-swaggerDoc = toSwagger (Proxy :: Proxy BasicAPI)
+swaggerDoc :: OpenApi
+swaggerDoc = toOpenApi (Proxy :: Proxy BasicAPI)
     & info.title       .~ "Cats API"
     & info.version     .~ "2016.8.7"
     & info.description ?~ "This is an API that tests servant-swagger support"
@@ -205,9 +199,7 @@ app = serve api . server'
 main :: IO ()
 main = do
     args <- getArgs
-    let uiFlavour | "jensoleg" `elem` args = JensOleG
-                  | "redoc"    `elem` args = ReDoc
-                  | otherwise              = Original
+    let uiFlavour = Original
     p <- fromMaybe 8000 . (>>= readMaybe) <$> lookupEnv "PORT"
     putStrLn $ "http://localhost:" ++ show p ++ "/"
     Warp.run p (app uiFlavour)
